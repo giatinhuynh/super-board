@@ -3,7 +3,8 @@
 #
 # What it does:
 #   1. Find every in-flight worker (lock files under .claude/super-board/inflight/).
-#      Stop any Codex wave and its lane process groups before comments/releases.
+#      Stop any Codex or DeepSeek Harness (dsh) wave and its lane process groups
+#      before comments/releases.
 #   2. For each one, post a "stopped mid-flight" comment on the issue AND its PR
 #      (with last commit, lane, and resume hint) — so context survives the kill.
 #   3. Release the GitHub assignee mutex on each claimed issue.
@@ -166,7 +167,12 @@ fi
 
 DISPATCHER_PIDS=$(pgrep -f 'super-board-run\.sh' 2>/dev/null || true)
 ORPHAN_WORKERS=$(pgrep -f 'claude -p .*super-board' 2>/dev/null || true)
+# Codex and dsh waves share one runner (super-board-codex-wave.sh --backend <b>);
+# each writes .claude/super-board/<backend>-wave.pid. Take the first one present.
 CODEX_WAVE_MARKER=".claude/super-board/codex-wave.pid"
+for marker in .claude/super-board/codex-wave.pid .claude/super-board/dsh-wave.pid; do
+  if [ -f "$marker" ]; then CODEX_WAVE_MARKER=$marker; break; fi
+done
 CODEX_WAVE_PID=""
 if [ -f "$CODEX_WAVE_MARKER" ]; then
   CODEX_WAVE_PID=$(cat "$CODEX_WAVE_MARKER")

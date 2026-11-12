@@ -65,6 +65,34 @@ class VerificationReadiness(unittest.TestCase):
                 self.assertFalse((root / "called").exists())
                 self.assertFalse((root / ".claude/super-board/codex-wave.pid").exists())
 
+    def test_dsh_entry_points_halt_before_launching_or_touching_owned_state(self):
+        for launcher in ("super-board-dsh-lane.sh", "super-board-dsh-wave.sh"):
+            with self.subTest(launcher=launcher), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                subprocess.run(["git", "init", "-q", str(root)], check=True)
+                config = root / "config.json"
+                config.write_text(json.dumps({"verify_commands": []}))
+                lock = root / ".claude/super-board/inflight/1"
+                lock.parent.mkdir(parents=True)
+                lock.write_text("owned state")
+                binary = root / "bin/dsh"
+                binary.parent.mkdir()
+                binary.write_text("#!/bin/sh\ntouch called\nexit 9\n")
+                binary.chmod(0o755)
+                card = {"number": 1, "status": "Review", "title": "example"}
+                args = (["--card", json.dumps(card), "--lane", "review"] if "lane" in launcher
+                        else ["--cards", json.dumps([card])])
+                result = subprocess.run(["bash", str(ROOT / "scripts" / launcher),
+                                         "--config", str(config), "--dsh"] + args,
+                                        cwd=root, env=dict(os.environ, PATH=str(binary.parent) + ":" + os.environ["PATH"]),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 9, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["status"] == "halted" if "lane" in launcher
+                                else json.loads(result.stdout)["halted"])
+                self.assertEqual(lock.read_text(), "owned state")
+                self.assertFalse((root / "called").exists())
+                self.assertFalse((root / ".claude/super-board/dsh-wave.pid").exists())
+
     def test_setup_reports_configuration_error_without_inventing_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
