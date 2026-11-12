@@ -25,6 +25,9 @@ Rules, from references/config-schema.json → merge_policy / migrations:
 - merge_policy.default "human" → everything waits for a human.
 - config `host` other than "claude" (codex, opencode) with merge_policy.default
   unset → everything waits for a human; an explicit "auto" merges as usual.
+- config `host` "dsh" (DeepSeek Harness) → everything waits for a human, even with
+  merge_policy.default "auto": one unladdered model reviews its own lane chain, so a
+  person stays at the merge.
   Read from config only (no host detection). No `host` key → the Claude
   default ("auto"), so configs written before the key existed do not change.
 - merge_policy.auto_max_lines (default 400; 0 = no cap): changed lines
@@ -137,6 +140,8 @@ def main() -> int:
     host = cfg.get("host")
     if (policy.get("default") or "auto") == "human":
         human.append({"category": "default", "why": "merge_policy.default is \"human\""})
+    elif host == "dsh":
+        human.append({"category": "default", "why": "host dsh: a person merges every DeepSeek Harness PR"})
     elif not policy.get("default") and host not in (None, "claude"):
         human.append({"category": "default", "why": f"host {host}: auto-merge not turned on "
                       "(set merge_policy.default to \"auto\")"})

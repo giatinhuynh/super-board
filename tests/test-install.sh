@@ -169,7 +169,8 @@ rm -rf "$T"
 T=$(mktemp -d)
 "$INSTALL" "$T" >/dev/null 2>&1
 for s in super-board-run.sh super-board-stop.sh super-board-wave-plan.sh \
-         super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-card.sh super-board-throttle.sh super-board-host.sh \
+         super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-dsh-lane.sh super-board-dsh-wave.sh \
+         super-board-card.sh super-board-throttle.sh super-board-host.sh \
          super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-usage.sh super-board-pr-body.sh \
          super-review-file-refactor.sh super-qa-file-bug.sh; do
   [ -x "$T/.claude/bin/$s" ] || fail "$s was not installed, or is not executable"
@@ -324,6 +325,10 @@ T=$(mktemp -d)
 "$INSTALL" --no-hooks --hosts=opencode "$T" >/dev/null 2>&1 || fail "--hosts=opencode failed"
 resolves "$T" opencode; resolves "$T" claude
 [ ! -e "$T/.codex" ] || fail "--hosts=opencode must not create .codex/"
+rm -rf "$T"
+T=$(mktemp -d)
+"$INSTALL" --no-hooks --hosts dsh "$T" >/dev/null 2>&1 || fail "--hosts dsh failed"
+[ ! -e "$T/.dsh" ] && [ -f "$T/.agents/skills/super-build/SKILL.md" ] || fail "--hosts dsh links no folder: dsh reads .agents/skills"
 rm -rf "$T"
 T=$(mktemp -d)
 if OUT=$("$INSTALL" --hosts claude,cursor "$T" 2>&1); then fail "an unknown host should be refused"; fi

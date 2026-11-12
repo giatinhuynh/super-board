@@ -319,7 +319,7 @@ echo "$TXT" | grep -q "✗ .*b.json.*gemini" || fail "text report must name the 
 python3 "$SETUP" fix --root "$WORK/bare" --no-helpers >/dev/null || true
 q '.host == "gemini"' "$H/b.json" || fail "fix must not guess over a set host: $(cat "$H/b.json")"
 # A non-Claude host keeps merge_policy.default unset (merges by hand, #47); claude gets "auto".
-for h in codex opencode; do
+for h in codex dsh opencode; do
   printf '{"host":"%s"}' "$h" > "$H/b.json"
   python3 "$SETUP" fix --root "$WORK/bare" --no-helpers >/dev/null || true
   q '.columns != null and (.merge_policy.default // null) == null' "$H/b.json" || fail "fix must migrate but not turn auto-merge on for host $h: $(cat "$H/b.json")"
@@ -328,6 +328,12 @@ rm "$H/b.json"; echo '{}' > "$H/b.json"
 python3 "$SETUP" fix --root "$WORK/bare" --no-helpers --host codex >&2 || true
 q '.host == "codex" and (.merge_policy.default // null) == null' "$H/b.json" \
   || fail "fix filling host codex must not turn auto-merge on: $(cat "$H/b.json")"
+echo '{}' > "$H/b.json"
+python3 "$SETUP" fix --root "$WORK/bare" --no-helpers --host dsh >&2 || true
+q '.host == "dsh" and (.merge_policy.default // null) == null' "$H/b.json" \
+  || fail "fix must accept --host dsh and leave auto-merge off: $(cat "$H/b.json")"
+OUT=$(python3 "$SETUP" check --root "$WORK/bare" --host dsh || true)
+echo "$OUT" | q '.host_errors == {}' || fail "host dsh is a valid config host: $OUT"
 printf '{"host":"claude"}' > "$H/b.json"
 python3 "$SETUP" fix --root "$WORK/bare" --no-helpers >/dev/null || true
 q '.merge_policy.default == "auto"' "$H/b.json" || fail "host claude keeps the auto migration: $(cat "$H/b.json")"

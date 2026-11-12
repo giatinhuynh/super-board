@@ -317,12 +317,16 @@ for c in '{"host":"claude"}' '{}' '{"host":"claude","merge_policy":{}}' '{"host"
   python3 ../scripts/super-board-merge-policy.py --config "$T15/c.json" --meta "$T15/m.json" --diff /dev/null \
     | jq -e '.human == []' >/dev/null || fail "config $c should leave a small clean PR ungated"
 done
-for c in '{"host":"codex"}' '{"host":"opencode","merge_policy":{"auto_max_lines":0}}'; do
+for c in '{"host":"codex"}' '{"host":"opencode","merge_policy":{"auto_max_lines":0}}' '{"host":"dsh"}' '{"host":"dsh","merge_policy":{"default":"auto"}}'; do
   echo "$c" > "$T15/c.json"
   python3 ../scripts/super-board-merge-policy.py --config "$T15/c.json" --meta "$T15/m.json" --diff /dev/null \
     | jq -e '.human | length == 1 and .[0].category == "default"' >/dev/null \
     || fail "config $c should add one default human entry"
 done
+# dsh keeps a person at the merge even when merge_policy.default is "auto".
+echo '{"host":"dsh","merge_policy":{"default":"auto"}}' > "$T15/c.json"
+python3 ../scripts/super-board-merge-policy.py --config "$T15/c.json" --meta "$T15/m.json" --diff /dev/null \
+  | jq -e '.human[0].why | startswith("host dsh: a person merges")' >/dev/null || fail "host dsh must say a person merges"
 rm -rf "$T15"
 
 # 15c — lockfiles, snapshots and generated files do not count toward the cap;

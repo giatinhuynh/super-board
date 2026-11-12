@@ -39,15 +39,30 @@ nohost AGENT=1                                 # OpenCode sets it, but so do oth
 [ "$(host SUPER_BOARD_HOST=claude OPENCODE=1)" = claude ] || fail 'override beats the OpenCode sign'
 [ "$(host CODEX_THREAD_ID=01a1 OPENCODE=1)" = codex ] || fail 'a Codex id beats the OpenCode sign'
 
+# DeepSeek Harness 0.2.2-rc.1 injects DSH_SHELL=1 and DSH_SESSION_ID into every bash tool call
+# (dsh-shell-env). It wins over CLAUDECODE/OPENCODE leaked from a parent; a Codex id and the
+# override still win. DSH_HOME alone is not a sign: people export it themselves.
+[ "$(host DSH_SHELL=1)" = dsh ] || fail 'DSH_SHELL=1 means dsh'
+[ "$(host DSH_SESSION_ID=session-1)" = dsh ] || fail 'DSH_SESSION_ID means dsh'
+[ "$(host DSH_SHELL=1 CLAUDECODE=1)" = dsh ] || fail 'a dsh lane under Claude is dsh'
+[ "$(host DSH_SHELL=1 OPENCODE=1)" = dsh ] || fail 'dsh under OpenCode is dsh'
+[ "$(host CODEX_THREAD_ID=01a1 DSH_SHELL=1)" = codex ] || fail 'a Codex id beats the dsh sign'
+[ "$(host SUPER_BOARD_HOST=dsh)" = dsh ] || fail 'override accepts dsh'
+[ "$(host SUPER_BOARD_HOST=claude DSH_SHELL=1)" = claude ] || fail 'override beats the dsh sign'
+nohost DSH_HOME=/x DSH_PROFILE=headless           # not host signs
+nohost DSH_SHELL= DSH_SESSION_ID=                 # empty values are not signs
+
 # Config `host` (top-level key): used only when no override and no env sign is present.
 T=$(mktemp -d); trap 'rm -f "$ERR"; rm -rf "$T"' EXIT
 printf '{"host":"codex"}' > "$T/codex.json"
 printf '{"worker_backend":"workflow"}' > "$T/none.json"
 printf '{"host":"gemini"}' > "$T/bad.json"
+printf '{"host":"dsh"}' > "$T/dsh.json"
 cfg() { local f=$1; shift; env -i PATH="$PATH" "$@" bash "$S" --config "$f"; }
 [ "$(cfg "$T/codex.json")" = codex ] || fail 'config host codex prints codex'
 [ "$(cfg "$T/codex.json" CLAUDECODE=1)" = claude ] || fail 'an env sign beats config host'
 [ "$(cfg "$T/codex.json" SUPER_BOARD_HOST=opencode)" = opencode ] || fail 'override beats config host'
+[ "$(cfg "$T/dsh.json")" = dsh ] || fail 'config host dsh prints dsh'
 for f in none missing; do
   rc=0; out=$(cfg "$T/$f.json" 2>/dev/null) || rc=$?
   [ "$rc" = 65 ] && [ -z "$out" ] || fail "config $f without host should exit 65, got $rc '$out'"

@@ -23,7 +23,7 @@ What `fix` does, with NO question (all of it backed up first to
     settings.json entries (runs the pack's install.sh) when any is missing or older
   - removes the folders of skills that no longer exist: super-refine, cleanup-wt, arch-loop
   - migrates every .claude/super-board/configs/*.json to the v3 keys (migrate-config), and
-    writes a missing top-level `host` from --host (check flags a host outside claude/codex/opencode)
+    writes a missing top-level `host` from --host (check flags a host outside claude/codex/dsh/opencode)
   - `git init` when the folder is not a repo
   - adds Matt Pocock's helper skills with npx when Node is present and they are missing
 It never installs a system tool or signs in: those come back in `needs` with the exact
@@ -59,7 +59,7 @@ import subprocess
 import sys
 
 COLUMNS = ["Backlog", "Ready", "Building", "QA", "Review", "Blocked", "Done"]
-HOSTS = ("claude", "codex", "opencode")  # config `host`; super-board-host.sh accepts the same
+HOSTS = ("claude", "codex", "dsh", "opencode")  # config `host`; super-board-host.sh accepts the same
 LABELS = {
     "qa": ("0e8a16", "Test what exists; skips Building (super-board)"),
     "bug": ("d73a4a", "Something is broken; built, tested, reviewed (super-board)"),
@@ -73,7 +73,7 @@ OLD_LABELS = {
 }
 SKILLS = ["super-board", "super-build", "super-qa", "super-review", "super-collect", "visual", "git-sync", "ui-refine-loop", "pr-security-review"]
 OLD_SKILL_DIRS = ["super-refine", "cleanup-wt", "arch-loop"]
-BIN = ["super-board-project-verifier.py", "super-board-skills-ready.py", "super-board-host.sh", "super-board-codex-wave.sh", "super-board-lane.sh", "super-board-codex-lane.sh", "super-board-calibration.py", "super-board-verification-ready.py", "super-board-github-read.py", "super-board-collect-state.py", "super-board-run.sh", "super-board-gh-guard.sh", "super-board-card.sh", "super-board-status.py", "super-board-wave-plan.sh",
+BIN = ["super-board-project-verifier.py", "super-board-skills-ready.py", "super-board-host.sh", "super-board-codex-wave.sh", "super-board-lane.sh", "super-board-codex-lane.sh", "super-board-dsh-wave.sh", "super-board-dsh-lane.sh", "super-board-calibration.py", "super-board-verification-ready.py", "super-board-github-read.py", "super-board-collect-state.py", "super-board-run.sh", "super-board-gh-guard.sh", "super-board-card.sh", "super-board-status.py", "super-board-wave-plan.sh",
        "super-board-deps.sh", "super-board-preflight.sh", "super-board-merge-gate.sh",
        "super-board-merge-policy.py", "super-board-approval.py", "super-board-env-check.sh", "super-board-agents-md.py",
        "super-board-settings.py", "super-board-setup.py", "super-board-usage.sh", "super-board-pr-body.sh",
@@ -266,7 +266,7 @@ def migrate_config(cfg, host=None):
     if isinstance(ref, dict) and "qa_hook_rounds" in ref:
         ref.pop("qa_hook_rounds")
         changes.append("refine.qa_hook_rounds removed (the board no longer runs ui-refine-loop)")
-    # A codex/opencode host leaves the default unset: it merges by hand (#47).
+    # A codex/dsh/opencode host leaves the default unset: it merges by hand (#47).
     if "merge_policy" not in c and (c.get("human_approves_merge") or (c.get("host") or host) in (None, "claude")):
         c["merge_policy"] = {"default": "human" if c.get("human_approves_merge") else "auto"}
         changes.append(f"merge rule: merge_policy.default \"{c['merge_policy']['default']}\" (from human_approves_merge)")
@@ -1004,8 +1004,8 @@ def main(argv):
         if cmd in ("check", "fix"):
             pack = find_pack(flag(rest, "--pack"))
             host, home, catalog = flag(rest, "--host", "claude"), flag(rest, "--home", os.environ.get("SUPER_BOARD_SKILLS_HOME")), flag(rest, "--catalog", os.environ.get("SUPER_BOARD_SKILLS_CATALOG"))
-            if host not in ("claude", "codex"):
-                raise ValueError("--host must be claude or codex")
+            if host not in ("claude", "codex", "dsh"):
+                raise ValueError("--host must be claude, codex or dsh")
             res = check(root, pack, host, home, catalog) if cmd == "check" else fix(root, pack, "--no-helpers" not in rest, dry, host, home, catalog)
             if res.get("error") == "pack-not-found":
                 print(json.dumps(res, indent=1))

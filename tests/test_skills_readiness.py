@@ -77,6 +77,26 @@ class Readiness(unittest.TestCase):
         result = self.run_cli(host='codex')
         self.assertTrue(all(Path(e['resolved_path']).is_file() for e in result['entries'] if e['status'] == 'resolved'))
 
+    def test_dsh_reads_agents_and_dsh_roots_not_claude(self):
+        # DeepSeek Harness scans <project>/.dsh/skills, <project>/.agents/skills, $DSH_HOME/skills
+        # and ~/.agents/skills. A .claude/skills install alone is not visible to it.
+        self.full()
+        self.run_cli(host='dsh', expected=10)
+        self.full(host='dsh')
+        result = self.run_cli(host='dsh')
+        self.assertTrue(result['ready'])
+        root, home = self.root.resolve(), self.home.resolve()
+        self.assertEqual(result['searched_surfaces'], [str(root / '.dsh/skills'), str(root / '.agents/skills'),
+                                                       str(home / '.dsh/skills'), str(home / '.agents/skills')])
+        tdd = lambda: next(e['resolved_path'] for e in self.run_cli(host='dsh')['entries'] if e['name'] == 'mattpocock-skills:tdd')
+        self.assertEqual(tdd(), str((self.root / '.agents/skills/tdd/SKILL.md').resolve()))
+        first = self.root / '.dsh/skills/tdd/SKILL.md'; first.parent.mkdir(parents=True); first.write_text('dsh project skill')
+        self.assertEqual(tdd(), str(first.resolve()))
+        first.unlink(); (self.root / '.agents/skills/tdd/SKILL.md').unlink()
+        self.run_cli(host='dsh', expected=10)
+        user = self.home / '.dsh/skills/tdd/SKILL.md'; user.parent.mkdir(parents=True); user.write_text('dsh user skill')
+        self.assertEqual(tdd(), str(user.resolve()))
+
     def test_empty_unreadable_broken_and_directory_are_missing(self):
         self.full()
         path = self.root / '.claude/skills/code-review/SKILL.md'

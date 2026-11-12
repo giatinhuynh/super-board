@@ -5,7 +5,7 @@
 # merges the hook settings into .claude/settings.json (backed up first, never duplicated).
 #
 # Usage:
-#   ./install.sh [--no-hooks] [--protect-main] [--hosts claude,codex,opencode] [target-project-dir]
+#   ./install.sh [--no-hooks] [--protect-main] [--hosts claude,codex,dsh,opencode] [target-project-dir]
 # Defaults to the current working directory. --no-hooks skips the guard hooks
 # and leaves settings.json untouched. --protect-main also wires the opt-in
 # guard that blocks direct and force pushes to main/master/base_branch; with
@@ -17,7 +17,8 @@
 # folder (.claude/ always; .codex/ and .opencode/ when that folder already exists,
 # a config "host" key names it, super-board-host.sh reports it, or --hosts asks)
 # gets one link per skill under skills/ and one link per file under bin/,
-# workflows/ and hooks/. Nothing that is not super-board's is touched. Where a
+# workflows/ and hooks/. DeepSeek Harness (dsh) reads .agents/skills itself, so
+# --hosts dsh links no extra folder. Nothing that is not super-board's is touched. Where a
 # link cannot be made (Windows without symlink rights) the file is copied.
 # Settings and run state (.claude/settings.json, .claude/super-board/) stay put.
 #
@@ -69,7 +70,8 @@ add_host() { case " $HOSTS " in *" $1 "*) ;; *) HOSTS="$HOSTS $1" ;; esac; }
 for h in $(echo "$ASKED_HOSTS" | tr ',' ' '); do
   case "$h" in
     claude|codex|opencode) add_host "$h" ;;
-    *) echo "unknown host: $h (use claude, codex or opencode)" >&2; exit 64 ;;
+    dsh) ;;  # no host folder: dsh discovers .agents/skills directly
+    *) echo "unknown host: $h (use claude, codex, dsh or opencode)" >&2; exit 64 ;;
   esac
 done
 for h in codex opencode; do [ ! -d "$TARGET/.$h" ] || add_host "$h"; done
@@ -226,7 +228,7 @@ for skill in $PRIMARY_SKILLS $SECONDARY_SKILLS; do
   install_skill "$skill" "$SHARED/skills/$skill" || true
 done
 
-SCRIPTS="super-board-project-verifier.py super-board-skills-ready.py super-board-calibration.py super-board-verification-ready.py super-board-github-read.py super-board-collect-state.py super-board-run.sh super-board-gh-guard.sh super-board-card.sh super-board-status.py super-board-wave-plan.sh super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-merge-policy.py super-board-approval.py super-board-env-check.sh super-board-agents-md.py super-board-settings.py super-board-setup.py super-board-usage.sh super-board-throttle.sh super-board-host.sh super-board-pr-body.sh super-review-file-refactor.sh super-qa-file-bug.sh super-board-stop.sh"
+SCRIPTS="super-board-project-verifier.py super-board-skills-ready.py super-board-calibration.py super-board-verification-ready.py super-board-github-read.py super-board-collect-state.py super-board-run.sh super-board-gh-guard.sh super-board-card.sh super-board-status.py super-board-wave-plan.sh super-board-lane.sh super-board-codex-lane.sh super-board-codex-wave.sh super-board-dsh-lane.sh super-board-dsh-wave.sh super-board-deps.sh super-board-preflight.sh super-board-merge-gate.sh super-board-merge-policy.py super-board-approval.py super-board-env-check.sh super-board-agents-md.py super-board-settings.py super-board-setup.py super-board-usage.sh super-board-throttle.sh super-board-host.sh super-board-pr-body.sh super-review-file-refactor.sh super-qa-file-bug.sh super-board-stop.sh"
 for script in $SCRIPTS; do
   if [ -f "$REPO_ROOT/scripts/$script" ]; then
     copy_file "$REPO_ROOT/scripts/$script" "$SHARED/bin/$script"
