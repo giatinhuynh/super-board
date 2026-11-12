@@ -106,7 +106,8 @@ class Dsh:
                    'Files are writable only inside the repository, its git directories and temp directories; '
                    'a "[sandbox: file access denied" result is a policy denial: do not retry another way, return '
                    'status=failed with the denied path in detail. Claude hooks do not run here; run the checks the '
-                   'skills name yourself. Your final message must be the lane-result JSON object alone.')
+                   'skills name yourself. To post a GitHub comment or body from a file, use --body-file <path>; '
+                   'never --body @<path>, which posts the literal text. Your final message must be the lane-result JSON object alone.')
 
     def directories(self, run, config):
         """--add-dir grants: the git dirs, then dsh.add_dirs. dsh refuses missing or symlinked roots."""
