@@ -20,14 +20,16 @@ Ready takes its tier's medium cell. `--codex=<model>`, else optional `codex.mode
 pins one model for every card and skips the router.
 Keep this run choice in each wave and resume command; skip only the Claude usage guard.
 
-**Inside Codex, plain `run` is `--codex`.** Your tool list has no Workflow tool, or
+**Inside Codex, plain `run` is `--codex`.** The host check prints `dsh` → see "DeepSeek Harness runs"
+(dsh's own `workflow` tool is not the Claude Workflow tool). Otherwise your tool list has no Workflow tool, or
 `bash .claude/bin/super-board-host.sh --config <config-path>` prints `codex` → run as `--codex` (tier flags and
 `--codex=<model>` still apply); it counts as explicit `--codex`, Review included.
 Say so once, in the first wave report: `🔁 codex host — running as --codex`. Never improvise a Claude workflow wave in Codex.
 
 **Unknown host halts.** Run the host check before preconditions. Exit 65 (no host sign) or
 `opencode` (no OpenCode backend yet) halts before any claim, even with no Workflow tool, with one line:
-`⛔ unknown host — set SUPER_BOARD_HOST=claude|codex and re-run`. Never guess a backend.
+`⛔ unknown host — set SUPER_BOARD_HOST=claude|codex|dsh and re-run`. Never guess a backend.
+A host check printing `dsh` runs as `--dsh` (see "DeepSeek Harness runs").
 
 After the same plan and claim steps, launch this command as a background task:
 `bash .claude/bin/super-board-codex-wave.sh --config <config-path> --cards <claimed-cards.json> --codex[=<model>] --tier <low|medium|high> --output <wave-result.json>`.
@@ -41,6 +43,30 @@ Review is allowed only with explicit `--codex`; merges still use the unchanged
 merge gate with `--expect-head <reviewed-SHA>` and verify landing per `run.md`.
 Concurrent reviews share that gate's merge mutex. Network and repo/git-dir writes
 use the lane launcher's sandbox settings, including an external submodule git dir.
+
+## DeepSeek Harness runs
+
+`/super-board run --dsh` uses headless DeepSeek Harness (`dsh headless`) for every lane of
+every wave, overriding `worker_backend`. It works like "Codex runs" above, with these changes.
+
+- **One model.** dsh has no ladder and no router; tier flags change nothing. The model is the
+  dsh profile's default, set by the patch in `dsh.patch` (or `SUPER_BOARD_DSH_PATCH`).
+  `--dsh=<provider>/<model>`, else `dsh.model`, pins one model for every card.
+- **Inside dsh, plain `run` is `--dsh`.** No Workflow tool, or `bash .claude/bin/super-board-host.sh
+  --config <config-path>` prints `dsh` → run as `--dsh`; it counts as explicit `--dsh`, Review
+  included. Say so once, in the first wave report: `🔁 dsh host — running as --dsh`.
+- **Launch** this as a background task after the same plan and claim steps:
+  `bash .claude/bin/super-board-dsh-wave.sh --config <config-path> --cards <claimed-cards.json> --dsh[=<provider>/<model>] --output <wave-result.json>`.
+  It starts one `super-board-lane.sh --backend dsh` per card/lane and returns the same `cards`
+  summary. Its PID marker is `.claude/super-board/dsh-wave.pid`.
+- **Skills** come from `.agents/skills` (`--host dsh` in skills-ready). The lane prompt points
+  there. Claude hooks do not fire in dsh; the lanes run their checks themselves.
+- **Sandbox.** Lanes run `--permission-mode workspace-write --approval-policy never`: writes
+  only in the repo, its git dirs, temp dirs and `dsh.add_dirs`. Network stays open.
+- **Merges.** Review is allowed only with explicit `--dsh`, through the unchanged merge gate.
+  The merge policy sends every `host: "dsh"` PR to a person (exit 7): a human approves the merge.
+- **Skip** the Claude usage guard, as for `--codex`. Keep `--dsh[=<model>]` in each wave and
+  in the resume command.
 
 ## Required GitHub evidence and a paused run
 
@@ -101,14 +127,15 @@ Run the same preconditions as `run.md` §Preconditions, minus PID checks:
    burning tokens):
    `{ echo '(async function(){'; sed 's/^export const meta/const meta/' .claude/workflows/super-board-wave.js; echo '})'; } | node --check --input-type=module`
    With `--codex`, instead require `codex` on PATH and `bash -n` on both Codex launcher scripts.
+   With `--dsh`, require `dsh` on PATH and `bash -n` on `super-board-dsh-wave.sh` and `super-board-lane.sh`.
 5. Wave marker FIRST, then the legacy check (lock-before-look closes the
    TOCTOU window where both backends pass each other's checks at once):
    a. Atomically create `.claude/super-board/inflight/workflow-wave.lock`
       (mkdir -p the directory) containing the config slug and start time:
       `(set -C; printf 'SLUG=%s\nSTARTED=%s\n' <slug> "$(date -u +%FT%TZ)" > <lock>)`.
       Before replacing an existing marker, check `/workflows` and verify the PID
-      in `.claude/super-board/codex-wave.pid` (plain numeric PID) with `kill -0` plus its process command.
-      Only if neither backend has an active wave and no repo-local Codex lane
+      in `.claude/super-board/codex-wave.pid` or `dsh-wave.pid` (plain numeric PID) with `kill -0` plus its process command.
+      Only if no backend has an active wave and no repo-local Codex or dsh lane
       remains is the marker stale from a crashed run — replace it.
       Remove the lock when the run ends or stops. The legacy dispatcher
       refuses to start (and halts mid-run) while it exists.
@@ -116,8 +143,8 @@ Run the same preconditions as `run.md` §Preconditions, minus PID checks:
       `pgrep -f 'super-board-run.sh'` (the legacy dispatcher idles between
       dispatches with zero workers alive) and
       `pgrep -f 'claude -p .*super-board run'` are empty, AND `/workflows`
-      shows no running super-board-wave, AND no `super-board-codex-wave.sh` or
-      `super-board-codex-lane.sh` process belongs to this repo. If a legacy run is detected,
+      shows no running super-board-wave, AND no `super-board-codex-wave.sh`,
+      `super-board-codex-lane.sh` or `super-board-lane.sh` process belongs to this repo. If a legacy run is detected,
       remove the lock just created and stop — the legacy run won.
 6. Crash-recovery sweep (the workflow backend's equivalent of the legacy
    reaper): with no wave running, strip `bot_identity` from any
@@ -142,7 +169,7 @@ Repeat until a done condition or halt gate fires:
    quota: `gh api repos/<o>/<r>/issues/<n>/comments -f body=…` for a comment,
    `gh api -X DELETE repos/<o>/<r>/issues/<n>/assignees -f 'assignees[]=<bot>'`
    to release a claim. Board moves have no REST route; they wait for the reset.
-   **Usage guard** (Claude waves only; skip for `--codex`, explicit or host-switched) — `bash .claude/bin/super-board-usage.sh check --config <config-path>`
+   **Usage guard** (Claude waves only; skip for `--codex` or `--dsh`, explicit or host-switched) — `bash .claude/bin/super-board-usage.sh check --config <config-path>`
    (Claude 5-hour and weekly plan usage; threshold `usage_pause_pct`, default 95):
    - exit 0 → launch.
    - exit 10 with `usage_fallback: "codex"` → resolve the selected remaining
@@ -186,7 +213,7 @@ Repeat until a done condition or halt gate fires:
    read-only with `.claude/bin/super-board-github-read.py --kind issue -- issue
    view <N> --json number,title,body`. Keep number, status, labels and literal body
    in a JSON array file. Run `python3 .claude/bin/super-board-skills-ready.py
-   --root <repo-root> --host <claude|codex> --cards <cards.json>` for the actual
+   --root <repo-root> --host <claude|codex|dsh> --cards <cards.json>` for the actual
    worker host before sweep/resume/refresh/flag/stranded actions or Claim.
    Exit 10 names missing helpers: halt, preserve all state, repair the exact
    visible skill files and restart explicitly. Exit 64 means invalid input.
@@ -247,7 +274,7 @@ Repeat until a done condition or halt gate fires:
    there is no cross-session claim at all, so never run two orchestrators
    (or /loop re-entries) against the same board without bot_identity.
 4. **Launch** — With `--codex`, or no Workflow tool, or the host check printing `codex`, use
-   "Codex runs" above. The host check printing `claude` uses the Workflow tool; exit 65 or
+   "Codex runs" above. With `--dsh`, or the host check printing `dsh`, use "DeepSeek Harness runs". The host check printing `claude` uses the Workflow tool; exit 65 or
    `opencode` never reaches Launch (see "Unknown host halts"). Workflow tool with
    `scriptPath: .claude/workflows/super-board-wave.js` and
    `args: { configPath, cards, humanApprovesMerge, tier }` (`cards` hydrated after the planner: each
@@ -291,7 +318,7 @@ Repeat until a done condition or halt gate fires:
    `block_rate_alert_pct` of initial Ready; or the user says stop. The halt
    note is four lines: `🛑 halted — <gate>` · the evidence (counts, the cards
    that kept bouncing) · what is left in flight or claimed · `Resume:
-   /super-board run <slug> [--codex[=<model>]] [--low|--high]` (retain the run's choice) and who must act first.
+   /super-board run <slug> [--codex[=<model>]|--dsh[=<provider>/<model>]] [--low|--high]` (retain the run's choice) and who must act first.
 8. Loop to 1. For unattended cadence, the user may wrap this loop in /loop;
    the orchestrator must still stop at halt gates.
 
@@ -312,7 +339,7 @@ reported as skipped and does not change the completed product work.
 - Stop: `x` on the run in `/workflows` (or TaskStop), then release assignees
   for in-flight cards and post "stopped mid-flight" comments (same protocol
   as `references/stop.md`). Remove `.claude/super-board/inflight/workflow-wave.lock`.
-- Codex stop: with GitHub available, run `bash .claude/bin/super-board-stop.sh <slug>`; it validates the wave PID and allows SIGTERM to cancel child lanes before releasing claims. Apply the same claim/comment/lock protocol to ALL selected claimed cards, including queued cards. During a GitHub halt, send SIGTERM only to the verified wave PID, wait for child cancellation, and preserve claims without GitHub writes.
+- Codex or dsh stop: with GitHub available, run `bash .claude/bin/super-board-stop.sh <slug>`; it validates the wave PID and allows SIGTERM to cancel child lanes before releasing claims. Apply the same claim/comment/lock protocol to ALL selected claimed cards, including queued cards. During a GitHub halt, send SIGTERM only to the verified wave PID, wait for child cancellation, and preserve claims without GitHub writes.
 - Resume: just run again — board state is the only state. A workflow stopped
   mid-wave can also be resumed in-session via `resumeFromRunId` (completed
   lane agents return cached results).
@@ -345,6 +372,8 @@ don't stall on prompts:
     "Bash(bash .claude/bin/super-board-throttle.sh:*)",
     "Bash(bash .claude/bin/super-board-codex-lane.sh:*)",
     "Bash(bash .claude/bin/super-board-codex-wave.sh:*)",
+    "Bash(bash .claude/bin/super-board-dsh-lane.sh:*)",
+    "Bash(bash .claude/bin/super-board-dsh-wave.sh:*)",
     "Bash(bash .claude/bin/super-board-host.sh:*)",
     "Bash(bash .claude/bin/super-board-pr-body.sh:*)", "Bash(gh pr edit:*)",
     "Bash(bash .claude/bin/super-board-stop.sh:*)",

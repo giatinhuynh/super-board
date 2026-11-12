@@ -31,11 +31,12 @@
   // only; the dispatcher refuses to run (exit 78) unless set here.
   "worker_backend": "workflow",
 
-  // Agent host this project runs on: "claude" | "codex" | "opencode". Separate from
+  // Agent host this project runs on: "claude" | "codex" | "dsh" | "opencode". Separate from
   // worker_backend. Onboard and setup's fix ALWAYS write it (setup fills a missing key
   // from --host and never replaces a set one); setup's check flags any other value.
   // `super-board-host.sh --config <this file>` uses it only when SUPER_BOARD_HOST and
-  // every env sign (Codex ids, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
+  // every env sign (Codex ids, DSH_SHELL, OPENCODE, CLAUDECODE) are absent. See docs/hosts.md.
+  // "dsh" (DeepSeek Harness) always merges by hand: a person approves every merge.
   "host": "claude",
 
   // Optional post-completion adapter; never bundles or installs the external skill.
@@ -66,6 +67,21 @@
     // Codex ladder. `--codex=<model>` wins; absent/null lets the ladder pick
     // (run tier x card grade, see scripts/super-board-codex-lane.sh).
     "model": null
+  },
+
+  // Optional DeepSeek Harness lane settings. Used by explicit `run --dsh`
+  // (scripts/super-board-dsh-wave.sh); never selects the backend.
+  "dsh": {
+    // Patch file for `dsh headless --patch`: adds the model provider (e.g. Ollama
+    // Cloud) and its default model to the headless profile. Relative paths start at
+    // the repo root. SUPER_BOARD_DSH_PATCH wins. null: the headless profile as is.
+    "patch": null,
+    // "<provider>/<model>" for every card (one model; dsh has no ladder), written as a
+    // per-run agent-default-model overlay. `--dsh=<provider>/<model>` wins.
+    "model": null,
+    // Extra writable directories (absolute, existing; `~` allowed), e.g. "~/.npm" when
+    // verify_commands run npm. The repo and its git dirs are always writable.
+    "add_dirs": []
   },
 
   "target": {

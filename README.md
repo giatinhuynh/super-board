@@ -63,7 +63,7 @@ Two security skills come with every install, and they stay separate:
 `--no-helper-skills` skips the `security-audit` download; `/super-board onboard` adds it later.
 Claude Code's built-in `/security-review` is left as it is.
 
-Running from Codex or OpenCode? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
+Running from Codex, DeepSeek Harness or OpenCode? See [supported hosts](docs/hosts.md) for tested versions, sign-in and gaps.
 
 Optional post-run learning can delegate an already installed `calibrate` skill after
 verified selected work completes. It applies only to explicitly permitted existing
@@ -142,7 +142,7 @@ Each name links to that skill's README. Adding a skill? Write its `SKILL.md` and
 /git-sync                     # commit, pull, push
 ```
 
-Flags: `run --low|--high` · `run --codex[=<model>]` · `super-collect --since 30d`
+Flags: `run --low|--high` · `run --codex[=<model>]` · `run --dsh[=<provider>/<model>]` · `super-collect --since 30d`
 
 ## Guards & hooks
 
@@ -177,6 +177,25 @@ A cheap router grades each card easy, medium or hard first; the run flag picks t
 Run inside Codex? plain `/super-board run` switches to the Codex ladder by itself. Codex has no
 `/super-board` command: it finds skills in `.agents/skills/` (symlinks followed), so link
 `.claude/skills/super-board` there and type `$super-board run`.
+
+### Running with DeepSeek Harness (Ollama Cloud)
+
+With `--dsh`, every lane runs headless in [DeepSeek Harness](docs/hosts.md#deepseek-harness-dsh)
+(`dsh headless`). It uses one model for every card: there is no router and no ladder.
+
+1. In the dsh web app, add your model on the Models page (for example Ollama Cloud,
+   `deepseek-v4-pro`).
+2. Save the same provider as a patch file in the project, e.g.
+   `.claude/super-board/dsh.patch.yml` (example in [hosts](docs/hosts.md#deepseek-harness-dsh)).
+3. In the board config set `"host": "dsh"` and
+   `"dsh": {"patch": ".claude/super-board/dsh.patch.yml", "add_dirs": ["~/.npm"]}`.
+4. Export the key, then start Claude Code from the same terminal: `export OLLAMA_API_KEY=…`,
+   then `claude`. The headless profile does not read the key saved in the web app.
+5. Sign in to GitHub with `gh auth login` (dsh hides `GH_TOKEN` from its shell).
+6. Start the run from Claude Code with `/super-board run --dsh`. Claude plans and claims;
+   dsh builds, tests and reviews.
+
+A person approves every dsh merge. Pin a model with `--dsh=ollama/deepseek-v4-pro` or `dsh.model`.
 
 ## Writing standard
 
