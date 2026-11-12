@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # One headless board lane on a non-Claude worker host, chosen by --backend.
-# Usage: --backend codex --config f --card '<JSON>' --lane build|qa|review
+# Usage: --backend codex|dsh --config f --card '<JSON>' --lane build|qa|review
 #        [--<backend>[=model]] [--tier low|medium|high] [--complexity low|medium|high]
 # --<backend> (e.g. --codex) is the run owner's explicit opt-in; without it,
 # usage fallback may build/test but must never own a review or merge, and the
 # board config must say "usage_fallback": "<backend>" (exit 78 otherwise).
 # Model: --<backend>=<model>, else <backend>.model, else the backend's LADDERS[tier][complexity]
 # when --tier is given (an ungraded card takes the medium cell), else the host's default.
+# dsh has no model ladder: --dsh=<provider>/<model> or dsh.model overlays one model per run.
 # A missing, unknown or not-yet-built backend exits 64 and names the valid ones.
 # Shared here: input checks, readiness/GitHub gates, lane prompt, result schema and
 # validation, signal handling. Per host: one class in BACKENDS below.
@@ -63,10 +64,113 @@ class Codex:
         return run['output'].read_text()
 
 
+def last_json_object(text):
+    """The last top-level JSON object in free text, preferring one with a `status` key.
+
+    Models wrap the answer in ``` fences or add a sentence around it. Scan every `{`,
+    decode what parses, skip objects nested inside one already taken, keep the last."""
+    decoder = json.JSONDecoder()
+    found, index = [], 0
+    while True:
+        index = text.find('{', index)
+        if index < 0:
+            break
+        try:
+            value, end = decoder.raw_decode(text, index)
+        except ValueError:
+            index += 1
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        index = end
+    with_status = [value for value in found if 'status' in value]
+    return (with_status or found or [None])[-1]
+
+
+class Dsh:
+    """`dsh headless` (DeepSeek Harness 0.2.2-rc.1) in its workspace-write sandbox; the answer is stdout.
+
+    The sandbox is file-only: the workspace (dsh takes the cwd, here the repo root), each
+    --add-dir and the temp dirs are writable; reads and network stay open. Bash children
+    lose env names containing KEY/TOKEN/SECRET/PASSWORD, so `gh` must use its stored login.
+    Headless has no model flag. A model is a --patch overlay of the `agent-default-model`
+    entry, so it needs the provider too: --dsh=<provider>/<model> or dsh.model. The
+    provider itself comes from the user's patch (dsh.patch or SUPER_BOARD_DSH_PATCH) or
+    $DSH_HOME/cordis.patch.yml, which every profile reads."""
+    name, label = 'dsh', 'DeepSeek Harness'
+    LADDERS = None  # one model per run; no router
+    capture_stdout = True  # stdout is only the final answer; reasoning goes to stderr
+    skills_dir = '.agents/skills'  # dsh scans <project>/.agents/skills, not .claude/skills
+    prompt_note = ('Do not use the subagent, subagent_fork or workflow tools. Each bash call times out after '
+                   '60 seconds unless you pass timeoutMs: pass a larger timeoutMs for installs, builds and test suites. '
+                   'Files are writable only inside the repository, its git directories and temp directories; '
+                   'a "[sandbox: file access denied" result is a policy denial: do not retry another way, return '
+                   'status=failed with the denied path in detail. Claude hooks do not run here; run the checks the '
+                   'skills name yourself. Your final message must be the lane-result JSON object alone.')
+
+    def directories(self, run, config):
+        """--add-dir grants: the git dirs, then dsh.add_dirs. dsh refuses missing or symlinked roots."""
+        extra = config.get('add_dirs') or []
+        if not isinstance(extra, list) or not all(isinstance(item, str) and item.strip() for item in extra):
+            fail('dsh.add_dirs must be a list of directory paths')
+        grants = [str(run['git_dir']), str(run['common_dir'])]
+        for item in extra:
+            path = Path(os.path.expanduser(item))
+            if not path.is_absolute() or not path.is_dir():
+                fail(f'dsh.add_dirs entry {item!r} must be an existing absolute directory')
+            grants.append(str(path.resolve()))
+        return list(dict.fromkeys(grants))
+
+    def patches(self, run, config):
+        """--patch overlays: the user's model/provider patch, then a per-run model pin."""
+        patches = []
+        chosen = os.environ.get('SUPER_BOARD_DSH_PATCH') or config.get('patch')
+        if chosen:
+            if not isinstance(chosen, str):
+                fail('dsh.patch must be a file path')
+            path = Path(os.path.expanduser(chosen))
+            path = path if path.is_absolute() else run['root'] / path
+            if not path.is_file():
+                fail(f'dsh patch file not found: {path}')
+            patches.append(str(path.resolve()))
+        if run['model'] and run['model'].strip():
+            provider, _, model = run['model'].strip().partition('/')
+            if not provider or not model:
+                fail(f'dsh model {run["model"]!r} must be <provider>/<model>, e.g. ollama/deepseek-v4-pro')
+            overlay = run['tmp'] / 'model.patch.yml'
+            # A patch replaces the entry's whole config, so name both keys.
+            overlay.write_text('- id: agent-default-model\n  config:\n'
+                               f'    provider: {json.dumps(provider)}\n    model: {json.dumps(model)}\n')
+            patches.append(str(overlay))
+        return patches
+
+    def command(self, run):
+        """(argv, stdin text): dsh headless reads the task from stdin (`-`)."""
+        config = run['config'].get('dsh') or {}
+        if not isinstance(config, dict):
+            fail('dsh must be an object in the board config')
+        command = ['dsh', 'headless']
+        for patch in self.patches(run, config):
+            command += ['--patch', patch]
+        command += ['--permission-mode', 'workspace-write', '--approval-policy', 'never']
+        for directory in self.directories(run, config):
+            command += ['--add-dir', directory]
+        return command + ['-'], run['prompt']
+
+    def final_message(self, run, stdout):
+        """The lane-result object from the final answer, even inside fences or prose."""
+        value = last_json_object(stdout or '')
+        if value is None:
+            raise ValueError('no JSON object in the final message')
+        return json.dumps(value)
+
+
 # One entry per worker host. A new host is one more class with the same members:
 # name, label, LADDERS (or None), capture_stdout (True hands stdout to final_message),
-# command(run) and final_message(run, stdout). Everything else in this file is shared.
-BACKENDS = {backend.name: backend for backend in [Codex()]}
+# command(run) and final_message(run, stdout); optional skills_dir (where the lane prompt
+# points the worker, default .claude/skills) and prompt_note (extra host rules).
+# Everything else in this file is shared.
+BACKENDS = {backend.name: backend for backend in [Codex(), Dsh()]}
 
 raw = sys.argv[2:]
 choice = None
@@ -169,17 +273,18 @@ if not skills['ready']:
     sys.exit(10)
 
 skill = {'build': 'super-build', 'qa': 'super-qa', 'review': 'super-review'}[args.lane]
+skills_dir = getattr(backend, 'skills_dir', '.claude/skills')
 section = {'build': 'Builder', 'qa': 'Tester', 'review': 'Reviewer'}[args.lane]
 prompt = f'''Run {skill} for issue #{card['number']} as a {backend.label} lane worker.
 First operation: recheck .claude/bin/super-board-skills-ready.py --root {root} --host {backend.name} --cards - --lane {args.lane} with the Card JSON below as a one-element stdin array, before worktree creation, classification or lifecycle writes. Exit 10 means status=halted, detail=skills-readiness:, preserve all state. Load resolved_path files and only declared fallback IDs from the report. Before activating any conditional helper, repeat with --require <exact-name>.
 Resolved skill report: {json.dumps(skills)}
 Config: {config_path}
 Card: {json.dumps(card)}
-Read .claude/skills/{skill}/SKILL.md and .claude/skills/super-board/references/run.md → {section} lifecycle; follow all its board, branch, worktree, comments, test and merge requirements.
+Read {skills_dir}/{skill}/SKILL.md and {skills_dir}/super-board/references/run.md → {section} lifecycle; follow all its board, branch, worktree, comments, test and merge requirements.
 Source .claude/bin/super-board-gh-guard.sh and use its quota checks. Required GitHub reads go through .claude/bin/super-board-github-read.py; a read that misses its --kind shape exits 64 for that call only and prints the valid form, so fix the read. A --kind diff read needs --meta <file> from a --kind metadata read first. Check --check before new writes, migrations and merges; exit 79 means status=halted, no more GitHub calls, preserve claims/worktree/card/approval. Never retry a mutation.
 Use .claude/bin/super-board-card.sh for board reads/moves and .claude/bin/super-board-pr-body.sh for owned PR blocks; follow writing-standard.md and pr-author-notes.md.
 Use your own worktree under .claude/worktrees/; never edit the main checkout. Clean up on ordinary exit, preserve work on halt/interruption.
-{backend.label} adaptation: do not launch Claude or other sub-agents. Perform preflight, classification, independent review and truth-check duties inline. This changes the execution host, never the evidence requirements, confidence threshold or merge policy.
+{backend.label} adaptation: do not launch Claude or other sub-agents. Perform preflight, classification, independent review and truth-check duties inline. This changes the execution host, never the evidence requirements, confidence threshold or merge policy.{(' ' + backend.prompt_note) if getattr(backend, 'prompt_note', '') else ''}
 Return JSON: status=advanced|bounced|blocked|human-gate|failed|halted; column=current board column; detail=one line; prUrl/branch when known, otherwise null; priorFindings=review counts or null. A non-advanced exit ends this card's lane chain. On merge-gate exit 9, return status=halted with detail starting exactly "verification-readiness:"; preserve work and never bounce/retry.
 '''
 if args.lane == 'build':
@@ -232,6 +337,7 @@ signal.signal(signal.SIGTERM, interrupted)
 signal.signal(signal.SIGINT, interrupted)
 with tempfile.TemporaryDirectory(prefix=f'super-board-{backend.name}-') as temporary:
     run = dict(root=root, git_dir=git_dir, common_dir=common_dir, model=model, prompt=prompt,
+               config=config, tmp=Path(temporary),
                schema_path=Path(temporary) / 'schema.json', output=Path(temporary) / 'result.json')
     run['schema_path'].write_text(json.dumps(schema))
     command, stdin = backend.command(run)

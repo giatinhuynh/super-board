@@ -264,6 +264,13 @@ class Inventory:
         if host == 'claude':
             self.roots = [self.root / '.claude/skills', self.home / '.claude/skills']
             self.claude_plugins()
+        elif host == 'dsh':
+            # DeepSeek Harness (dsh-skill-filesystem): <project>/.dsh/skills, <project>/.agents/skills,
+            # then $DSH_HOME/skills and $DSH_AGENTS_HOME/skills; the project is the nearest .git
+            # ancestor of the cwd, and the lane runs dsh from the repository root.
+            dsh_home = (self.home / '.dsh') if home else Path(os.environ.get('DSH_HOME') or self.home / '.dsh')
+            agents_home = (self.home / '.agents') if home else Path(os.environ.get('DSH_AGENTS_HOME') or self.home / '.agents')
+            self.roots = [self.root / '.dsh/skills', self.root / '.agents/skills', dsh_home / 'skills', agents_home / 'skills']
         else:
             # Codex discovery stops at this independent repository's root.
             process = subprocess.run(['git', '-C', str(self.root), 'rev-parse', '--show-toplevel'],
@@ -454,7 +461,7 @@ class UsageParser(argparse.ArgumentParser):
 def main(argv=None):
     parser = UsageParser(description=__doc__)
     parser.add_argument('--root', required=True)
-    parser.add_argument('--host', required=True, choices=['claude', 'codex'])
+    parser.add_argument('--host', required=True, choices=['claude', 'codex', 'dsh'])
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument('--cards')
     selection.add_argument('--profile', choices=['setup'])
